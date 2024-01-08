@@ -1,0 +1,86 @@
+1、创建Oracle存储过程sql_to_csv
+CREATE OR REPLACE PROCEDURE sql_to_csv(p_query    IN VARCHAR2, -- PLSQL文
+                                       p_dir      IN VARCHAR2, -- 导出的文件放置目录
+                                       p_filename IN VARCHAR2  -- CSV名
+                                       ) IS
+  l_output       utl_file.file_type;
+  l_thecursor    INTEGER DEFAULT dbms_sql.open_cursor;
+  l_columnvalue  VARCHAR2(4000);
+  l_status       INTEGER;
+  l_colcnt       NUMBER := 0;
+  l_separator    VARCHAR2(1);
+  l_desctbl      dbms_sql.desc_tab;
+  p_max_linesize NUMBER := 32000;
+BEGIN
+  --OPEN FILE
+  l_output := utl_file.fopen(p_dir
+                            ,p_filename
+                            ,'W'
+                            ,p_max_linesize);
+  --DEFINE DATE FORMAT
+  EXECUTE IMMEDIATE 'ALTER SESSION SET NLS_DATE_FORMAT=''YYYY-MM-DD HH24:MI:SS''';
+  --OPEN CURSOR
+  dbms_sql.parse(l_thecursor
+                ,p_query
+                ,dbms_sql.native);
+  dbms_sql.describe_columns(l_thecursor
+                           ,l_colcnt
+                           ,l_desctbl);
+  --DUMP TABLE COLUMN NAME
+  FOR i IN 1 .. l_colcnt LOOP
+    utl_file.put(l_output
+                ,l_separator || '"' || l_desctbl(i).col_name || '"'); --输出表字段
+    dbms_sql.define_column(l_thecursor
+                          ,i
+                          ,l_columnvalue
+                          ,4000);
+    l_separator := ',';
+  END LOOP;
+  utl_file.new_line(l_output); --输出表字段
+  --EXECUTE THE QUERY STATEMENT
+  l_status := dbms_sql.execute(l_thecursor);
+
+  --DUMP TABLE COLUMN VALUE
+  WHILE (dbms_sql.fetch_rows(l_thecursor) > 0) LOOP
+    l_separator := '';
+    FOR i IN 1 .. l_colcnt LOOP
+      dbms_sql.column_value(l_thecursor
+                           ,i
+                           ,l_columnvalue);
+      utl_file.put(l_output
+                  ,l_separator || '"' ||
+                   TRIM(both ' ' FROM REPLACE(l_columnvalue
+                               ,'"'
+                               ,'""')) || '"');
+      l_separator := ',';
+    END LOOP;
+    utl_file.new_line(l_output);
+  END LOOP;
+  --CLOSE CURSOR
+  dbms_sql.close_cursor(l_thecursor);
+  --CLOSE FILE
+  utl_file.fclose(l_output);
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE;
+END;
+/
+
+2、创建输入文件的目录
+create or replace directory OUT_PATH as 'E:\tzq\wf\report';
+
+3、调用存储过程
+BEGIN
+  sql_to_csv('select * from RM_TS_RATES_REPORT' --导出表的数据查询SQL
+            ,'OUT_PATH'
+            ,'RM_TS_RATES_REPORT.csv');
+END;
+/
+
+附录：
+错误：PLS-00201: 必须声明标识符 ‘UTL_FILE’
+解决方法：
+用sysdba身份 把UTL_FILE包的执行权限给这个用户。
+
+sqlplus /as sysdba;
+grant execute on utl_file to username;
